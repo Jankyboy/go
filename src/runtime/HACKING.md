@@ -3,15 +3,13 @@ intended to articulate how programming in the Go runtime differs from
 writing normal Go. It focuses on pervasive concepts rather than
 details of particular interfaces.
 
-Scheduler structures
-====================
+# Scheduler structures
 
 The scheduler manages three types of resources that pervade the
 runtime: Gs, Ms, and Ps. It's important to understand these even if
 you're not working on the scheduler.
 
-Gs, Ms, Ps
-----------
+## Gs, Ms, Ps
 
 A "G" is simply a goroutine. It's represented by type `g`. When a
 goroutine exits, its `g` object is returned to a pool of free `g`s and
@@ -41,16 +39,15 @@ All `g`, `m`, and `p` objects are heap allocated, but are never freed,
 so their memory remains type stable. As a result, the runtime can
 avoid write barriers in the depths of the scheduler.
 
-User stacks and system stacks
------------------------------
+## User stacks and system stacks
 
-Every non-dead G has a *user stack* associated with it, which is what
+Every non-dead G has a _user stack_ associated with it, which is what
 user Go code executes on. User stacks start small (e.g., 2K) and grow
 or shrink dynamically.
 
-Every M has a *system stack* associated with it (also known as the M's
+Every M has a _system stack_ associated with it (also known as the M's
 "g0" stack because it's implemented as a stub G) and, on Unix
-platforms, a *signal stack* (also known as the M's "gsignal" stack).
+platforms, a _signal stack_ (also known as the M's "gsignal" stack).
 System and signal stacks cannot grow, but are large enough to execute
 runtime and cgo code (8K in a pure Go binary; system-allocated in a
 cgo binary).
@@ -63,8 +60,7 @@ non-preemptible and the garbage collector does not scan system stacks.
 While running on the system stack, the current user stack is not used
 for execution.
 
-`getg()` and `getg().m.curg`
-----------------------------
+## `getg()` and `getg().m.curg`
 
 To get the current user `g`, use `getg().m.curg`.
 
@@ -75,8 +71,7 @@ system or signal stacks, this will return the current M's "g0" or
 To determine if you're running on the user stack or the system stack,
 use `getg() == getg().m.curg`.
 
-Error handling and reporting
-============================
+# Error handling and reporting
 
 Errors that can reasonably be recovered from in user code should use
 `panic` like usual. However, there are some situations where `panic`
@@ -93,8 +88,7 @@ messages are prefixed with "runtime:".
 For runtime error debugging, it's useful to run with
 `GOTRACEBACK=system` or `GOTRACEBACK=crash`.
 
-Synchronization
-===============
+# Synchronization
 
 The runtime has multiple synchronization mechanisms. They differ in
 semantics and, in particular, in whether they interact with the
@@ -135,8 +129,7 @@ In summary,
 <tr><td>park</td><td>Y</td><td>N</td><td>N</td></tr>
 </table>
 
-Atomics
-=======
+# Atomics
 
 The runtime uses its own atomics package at `runtime/internal/atomic`.
 This corresponds to `sync/atomic`, but functions have different names
@@ -165,36 +158,35 @@ documented to explain how that access is protected.
 
 Some common patterns that mix atomic and non-atomic access are:
 
-* Read-mostly variables where updates are protected by a lock. Within
+- Read-mostly variables where updates are protected by a lock. Within
   the locked region, reads do not need to be atomic, but the write
   does. Outside the locked region, reads need to be atomic.
 
-* Reads that only happen during STW, where no writes can happen during
+- Reads that only happen during STW, where no writes can happen during
   STW, do not need to be atomic.
 
 That said, the advice from the Go memory model stands: "Don't be
 [too] clever." The performance of the runtime matters, but its
 robustness matters more.
 
-Unmanaged memory
-================
+# Unmanaged memory
 
 In general, the runtime tries to use regular heap allocation. However,
 in some cases the runtime must allocate objects outside of the garbage
-collected heap, in *unmanaged memory*. This is necessary if the
+collected heap, in _unmanaged memory_. This is necessary if the
 objects are part of the memory manager itself or if they must be
 allocated in situations where the caller may not have a P.
 
 There are three mechanisms for allocating unmanaged memory:
 
-* sysAlloc obtains memory directly from the OS. This comes in whole
+- sysAlloc obtains memory directly from the OS. This comes in whole
   multiples of the system page size, but it can be freed with sysFree.
 
-* persistentalloc combines multiple smaller allocations into a single
+- persistentalloc combines multiple smaller allocations into a single
   sysAlloc to avoid fragmentation. However, there is no way to free
   persistentalloced objects (hence the name).
 
-* fixalloc is a SLAB-style allocator that allocates objects of a fixed
+- fixalloc is a SLAB-style allocator that allocates objects of a fixed
   size. fixalloced objects can be freed, but this memory can only be
   reused by the same fixalloc pool, so it can only be reused for
   objects of the same type.
@@ -215,15 +207,14 @@ heap pointers unless the following rules are also obeyed:
    observe stale heap pointers. See "Zero-initialization versus
    zeroing".
 
-Zero-initialization versus zeroing
-==================================
+# Zero-initialization versus zeroing
 
 There are two types of zeroing in the runtime, depending on whether
 the memory is already initialized to a type-safe state.
 
 If memory is not in a type-safe state, meaning it potentially contains
 "garbage" because it was just allocated and it is being initialized
-for first use, then it must be *zero-initialized* using
+for first use, then it must be _zero-initialized_ using
 `memclrNoHeapPointers` or non-pointer writes. This does not perform
 write barriers.
 
@@ -231,31 +222,27 @@ If memory is already in a type-safe state and is simply being set to
 the zero value, this must be done using regular writes, `typedmemclr`,
 or `memclrHasPointers`. This performs write barriers.
 
-Runtime-only compiler directives
-================================
+# Runtime-only compiler directives
 
 In addition to the "//go:" directives documented in "go doc compile",
 the compiler supports additional directives only in the runtime.
 
-go:systemstack
---------------
+## go:systemstack
 
 `go:systemstack` indicates that a function must run on the system
 stack. This is checked dynamically by a special function prologue.
 
-go:nowritebarrier
------------------
+## go:nowritebarrier
 
 `go:nowritebarrier` directs the compiler to emit an error if the
-following function contains any write barriers. (It *does not*
+following function contains any write barriers. (It _does not_
 suppress the generation of write barriers; it is simply an assertion.)
 
 Usually you want `go:nowritebarrierrec`. `go:nowritebarrier` is
 primarily useful in situations where it's "nice" not to have write
 barriers, but not required for correctness.
 
-go:nowritebarrierrec and go:yeswritebarrierrec
-----------------------------------------------
+## go:nowritebarrierrec and go:yeswritebarrierrec
 
 `go:nowritebarrierrec` directs the compiler to emit an error if the
 following function or any function it calls recursively, up to a
@@ -277,8 +264,7 @@ functions that release the P or may run without a P and
 Since these are function-level annotations, code that releases or
 acquires a P may need to be split across two functions.
 
-go:notinheap
-------------
+## go:notinheap
 
 `go:notinheap` applies to type declarations. It indicates that a type
 must never be allocated from the GC'd heap or on the stack.
